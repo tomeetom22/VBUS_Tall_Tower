@@ -1,0 +1,279 @@
+' Combined CR3000 program
+' Three CSAT3Bs, IRGASON, CNR4, ozone input, and Garmin GPS.
+
+' Assumptions
+'   CSAT3B addresses: 1, 4, and 5.
+'   IRGASON address: 9.
+'   CNR4 radiation: differential channels 1 through 4.
+'   CNR4 temperature: Pt-100 on differential channel 8, Ix1/IXR.
+'   Ozone sensors: differential channels 5, 6, and 7.
+'   Garmin GPS: Com1 using control ports C1/C2 at 38400 baud.
+'   CNR4 sensitivities are copied from the current test program.
+'   The CNR4 temperature option is Pt-100, not thermistor.
+
+AngleDegrees
+PipeLineMode
+
+Const CSAT1_Address = 1
+Const CSAT2_Address = 4
+Const CSAT3_Address = 5
+Const IRGASON_Address = 9
+Const IRGASON_OutputMode = 2
+Const GPS_Baud = 38400
+Const GPS_MaxClockChange_ms = 500
+
+Const SW_Up_Sensitivity = 15.35
+Const SW_Down_Sensitivity = 15.41
+Const LW_Up_Sensitivity = 8.50
+Const LW_Down_Sensitivity = 7.09
+
+Const SW_Up_Mult = 1000 / SW_Up_Sensitivity
+Const SW_Down_Mult = 1000 / SW_Down_Sensitivity
+Const LW_Up_Mult = 1000 / LW_Up_Sensitivity
+Const LW_Down_Mult = 1000 / LW_Down_Sensitivity
+
+' Set these three offsets from the individual ozone calibrations.
+Const Ozone1_mV_Offset = 0
+Const Ozone2_mV_Offset = 0
+Const Ozone3_mV_Offset = 0
+
+Const FastFileRecords = 36000
+Const OzoneFileRecords = 900
+Const GPSFileRecords = 180
+Const CNR4FileRecords = 180
+
+Dim NMEASent(2) As String * 100
+
+Public BattVolt
+Public LoggerTemp
+
+Public CSAT1Data(5)
+Public CSAT2Data(5)
+Public CSAT3Data(5)
+
+Alias CSAT1Data(1) = CSAT1_Ux
+Alias CSAT1Data(2) = CSAT1_Uy
+Alias CSAT1Data(3) = CSAT1_Uz
+Alias CSAT1Data(4) = CSAT1_Ts
+Alias CSAT1Data(5) = CSAT1_Diag
+
+Alias CSAT2Data(1) = CSAT2_Ux
+Alias CSAT2Data(2) = CSAT2_Uy
+Alias CSAT2Data(3) = CSAT2_Uz
+Alias CSAT2Data(4) = CSAT2_Ts
+Alias CSAT2Data(5) = CSAT2_Diag
+
+Alias CSAT3Data(1) = CSAT3_Ux
+Alias CSAT3Data(2) = CSAT3_Uy
+Alias CSAT3Data(3) = CSAT3_Uz
+Alias CSAT3Data(4) = CSAT3_Ts
+Alias CSAT3Data(5) = CSAT3_Diag
+
+Public IRGAData(13)
+
+Alias IRGAData(1) = IRGA_Ux
+Alias IRGAData(2) = IRGA_Uy
+Alias IRGAData(3) = IRGA_Uz
+Alias IRGAData(4) = IRGA_Ts
+Alias IRGAData(5) = IRGA_SonicDiag
+Alias IRGAData(6) = CO2_Density
+Alias IRGAData(7) = H2O_Density
+Alias IRGAData(8) = IRGA_GasDiag
+Alias IRGAData(9) = IRGA_AirTemp
+Alias IRGAData(10) = IRGA_AirPressure
+Alias IRGAData(11) = CO2_Signal
+Alias IRGAData(12) = H2O_Signal
+Alias IRGAData(13) = CO2_Density_FastTemp
+
+Public CNR4_mV(4)
+Public CNR4_Wm2(4)
+Public CNR4_T_C
+Public CNR4_T_K
+Public SW_Net
+Public LW_Net
+Public NetRadiation
+Public Albedo
+Public CNR4_New
+Dim CNR4_PRT_R
+Dim CNR4_R_R0
+
+Alias CNR4_mV(1) = SW_Up_mV
+Alias CNR4_mV(2) = SW_Down_mV
+Alias CNR4_mV(3) = LW_Up_mV
+Alias CNR4_mV(4) = LW_Down_mV
+
+Alias CNR4_Wm2(1) = SW_Up
+Alias CNR4_Wm2(2) = SW_Down
+Alias CNR4_Wm2(3) = LW_Up
+Alias CNR4_Wm2(4) = LW_Down
+
+Public Ozone_mV(3)
+Public Ozone_ppbv(3)
+
+Alias Ozone_mV(1) = Ozone1_mV
+Alias Ozone_mV(2) = Ozone2_mV
+Alias Ozone_mV(3) = Ozone3_mV
+
+Alias Ozone_ppbv(1) = Ozone1
+Alias Ozone_ppbv(2) = Ozone2
+Alias Ozone_ppbv(3) = Ozone3
+
+Public GPSData(15)
+Alias GPSData(5) = GPS_SpeedKnots
+Alias GPSData(6) = GPS_CourseDeg
+Alias GPSData(8) = GPS_FixQuality
+Alias GPSData(9) = GPS_Satellites
+Alias GPSData(10) = GPS_Altitude_m
+Alias GPSData(11) = GPS_PPS_us
+Alias GPSData(13) = GPS_Ready
+
+Public FastFileWritten As Boolean
+Public OzoneFileWritten As Boolean
+Public CNR4FileWritten As Boolean
+Public GPSFileWritten As Boolean
+Public LastFastFile As String * 64
+Public LastOzoneFile As String * 64
+Public LastCNR4File As String * 64
+Public LastGPSFile As String * 64
+
+Units BattVolt = V
+Units LoggerTemp = deg C
+Units CSAT1_Ux = m/s
+Units CSAT1_Uy = m/s
+Units CSAT1_Uz = m/s
+Units CSAT1_Ts = deg C
+Units CSAT2_Ux = m/s
+Units CSAT2_Uy = m/s
+Units CSAT2_Uz = m/s
+Units CSAT2_Ts = deg C
+Units CSAT3_Ux = m/s
+Units CSAT3_Uy = m/s
+Units CSAT3_Uz = m/s
+Units CSAT3_Ts = deg C
+Units IRGA_Ux = m/s
+Units IRGA_Uy = m/s
+Units IRGA_Uz = m/s
+Units IRGA_Ts = deg C
+Units CO2_Density = mg/m^3
+Units H2O_Density = g/m^3
+Units IRGA_AirTemp = deg C
+Units IRGA_AirPressure = kPa
+Units CNR4_T_C = deg C
+Units CNR4_T_K = K
+Units SW_Up = W/m^2
+Units SW_Down = W/m^2
+Units LW_Up = W/m^2
+Units LW_Down = W/m^2
+Units SW_Net = W/m^2
+Units LW_Net = W/m^2
+Units NetRadiation = W/m^2
+Units Albedo = ratio
+Units Ozone_mV = mV
+Units Ozone_ppbv = ppbv
+Units GPS_SpeedKnots = knots
+Units GPS_CourseDeg = degrees
+Units GPS_Altitude_m = m
+Units GPS_FixQuality = code
+Units GPS_Satellites = count
+Units GPS_PPS_us = us
+Units GPS_Ready = code
+
+DataTable (Fast_20Hz, True, -1)
+  DataInterval (0, 0, mSec, 10)
+  TableFile ("CRD:Fast_20Hz", 64, -1, FastFileRecords, 0, Sec, FastFileWritten, LastFastFile)
+  Sample (4, CSAT1Data(1), IEEE4)
+  Sample (4, CSAT2Data(1), IEEE4)
+  Sample (4, CSAT3Data(1), IEEE4)
+  Sample (13, IRGAData(1), IEEE4)
+  Sample (1, BattVolt, IEEE4)
+  Sample (1, LoggerTemp, IEEE4)
+EndTable
+
+DataTable (CNR4_0p1Hz, True, -1)
+  DataInterval (0, 10, Sec, 10)
+  TableFile ("CRD:CNR4_0p1Hz", 64, -1, CNR4FileRecords, 0, Sec, CNR4FileWritten, LastCNR4File)
+  Sample (4, CNR4_mV(1), IEEE4)
+  Sample (4, CNR4_Wm2(1), IEEE4)
+  Sample (1, CNR4_T_C, IEEE4)
+  Sample (1, SW_Net, IEEE4)
+  Sample (1, LW_Net, IEEE4)
+  Sample (1, NetRadiation, IEEE4)
+  Sample (1, Albedo, IEEE4)
+EndTable
+
+DataTable (Ozone_0p5Hz, True, -1)
+  DataInterval (0, 2, Sec, 10)
+  TableFile ("CRD:Ozone_0p5Hz", 64, -1, OzoneFileRecords, 0, Sec, OzoneFileWritten, LastOzoneFile)
+  Sample (3, Ozone_mV(1), IEEE4)
+  Sample (3, Ozone_ppbv(1), IEEE4)
+EndTable
+
+DataTable (GPS_0p1Hz, True, -1)
+  DataInterval (0, 10, Sec, 10)
+  TableFile ("CRD:GPS_0p1Hz", 64, -1, GPSFileRecords, 0, Sec, GPSFileWritten, LastGPSFile)
+  Sample (15, GPSData(1), IEEE4)
+EndTable
+
+BeginProg
+  SetStatus ("Baudrate(COM1)", GPS_Baud)
+
+  Scan (50, mSec, 500, 0)
+    Battery (BattVolt)
+    PanelTemp (LoggerTemp, 250)
+
+    'Group-trigger the three CSAT3Bs.
+    SDMTrigger
+    CSAT3B (CSAT1Data(), 0, CSAT1_Address, 0)
+    CSAT3B (CSAT2Data(), 0, CSAT2_Address, 0)
+    CSAT3B (CSAT3Data(), 0, CSAT3_Address, 0)
+
+    'Read IRGASON gas and sonic data.
+    EC100 (IRGAData(), IRGASON_Address, IRGASON_OutputMode)
+
+    'Analog measurements must remain outside conditionals in pipeline mode.
+    VoltDiff (CNR4_mV(), 4, mV20C, 1, True, 0, _60Hz, 1.0, 0)
+    Resistance (CNR4_PRT_R, 1, mV200, 8, Ix1, 1, 1500, True, True, 0, _60Hz, 1, 0)
+    VoltDiff (Ozone_mV(), 3, mV5000, 5, True, 0, _60Hz, 1, 0)
+
+    CNR4_New = False
+    If TimeIntoInterval (0, 10, Sec) Then
+      'CNR4 radiation, Pt-100, and derived values.
+      CNR4_R_R0 = CNR4_PRT_R / 100
+      PRT (CNR4_T_C, 1, CNR4_R_R0, 1, 0)
+      CNR4_T_K = CNR4_T_C + 273.15
+
+      SW_Up = SW_Up_mV * SW_Up_Mult
+      SW_Down = SW_Down_mV * SW_Down_Mult
+      LW_Up = LW_Up_mV * LW_Up_Mult
+      LW_Down = LW_Down_mV * LW_Down_Mult
+      SW_Net = SW_Up - SW_Down
+      LW_Net = LW_Up - LW_Down
+      NetRadiation = SW_Net + LW_Net
+
+      If SW_Up > 0.1 Then
+        Albedo = SW_Down / SW_Up
+      Else
+        Albedo = NAN
+      EndIf
+
+      CNR4_New = True
+    EndIf
+
+    If TimeIntoInterval (0, 2, Sec) Then
+      'Ozone sensors on differential channels 5, 6, and 7.
+      Ozone1 = (Ozone1_mV - Ozone1_mV_Offset) * 0.1
+      Ozone2 = (Ozone2_mV - Ozone2_mV_Offset) * 0.1
+      Ozone3 = (Ozone3_mV - Ozone3_mV_Offset) * 0.1
+    EndIf
+
+    CallTable Fast_20Hz
+    If CNR4_New Then CallTable CNR4_0p1Hz
+    CallTable Ozone_0p5Hz
+  NextScan
+
+  SlowSequence
+    Scan (10, Sec, 0, 0)
+      GPS (GPSData(), Com1, 0, GPS_MaxClockChange_ms, NMEASent(1))
+      CallTable GPS_0p1Hz
+    NextScan
+EndProg

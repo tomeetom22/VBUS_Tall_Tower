@@ -1,0 +1,106 @@
+' CNR4 test program for CR3000 without the thermistor probe
+'
+' Differential inputs:
+'   Diff 1: upper shortwave
+'   Diff 2: lower shortwave
+'   Diff 3: upper longwave
+'   Diff 4: lower longwave
+'
+' This test records raw millivolts and converted radiation values.
+' Longwave temperature correction is intentionally omitted.
+
+PipeLineMode
+
+Const SW_Up_Sensitivity = 15.35
+Const SW_Down_Sensitivity = 15.41
+Const LW_Up_Sensitivity = 8.50
+Const LW_Down_Sensitivity = 7.09
+
+Const SW_Up_Mult = 1000 / SW_Up_Sensitivity
+Const SW_Down_Mult = 1000 / SW_Down_Sensitivity
+Const LW_Up_Mult = 1000 / LW_Up_Sensitivity
+Const LW_Down_Mult = 1000 / LW_Down_Sensitivity
+
+Public LoggerTemp
+Public BattVolt
+Public CNR4_mV(4)
+Public CNR4_Wm2(4)
+Public SW_Net
+Public LW_Net_Uncorrected
+Public NetRadiation_Uncorrected
+Public Albedo
+Public CardFileWritten As Boolean
+Public LastCardFile As String * 64
+
+Alias CNR4_mV(1) = SW_Up_mV
+Alias CNR4_mV(2) = SW_Down_mV
+Alias CNR4_mV(3) = LW_Up_mV
+Alias CNR4_mV(4) = LW_Down_mV
+
+Alias CNR4_Wm2(1) = SW_Up
+Alias CNR4_Wm2(2) = SW_Down
+Alias CNR4_Wm2(3) = LW_Up
+Alias CNR4_Wm2(4) = LW_Down
+
+Units LoggerTemp = deg C
+Units BattVolt = V
+Units SW_Up_mV = mV
+Units SW_Down_mV = mV
+Units LW_Up_mV = mV
+Units LW_Down_mV = mV
+Units SW_Up = W/m^2
+Units SW_Down = W/m^2
+Units LW_Up = W/m^2
+Units LW_Down = W/m^2
+Units SW_Net = W/m^2
+Units LW_Net_Uncorrected = W/m^2
+Units NetRadiation_Uncorrected = W/m^2
+Units Albedo = ratio
+
+DataTable (CNR4_Test_1Hz, True, -1)
+  DataInterval (0, 1, Sec, 10)
+  TableFile ("CRD:CNR4_Test_1Hz", 64, -1, 0, 60, Min, CardFileWritten, LastCardFile)
+  Sample (4, CNR4_mV(1), IEEE4)
+  Sample (4, CNR4_Wm2(1), IEEE4)
+  Sample (1, SW_Net, IEEE4)
+  Sample (1, LW_Net_Uncorrected, IEEE4)
+  Sample (1, NetRadiation_Uncorrected, IEEE4)
+  Sample (1, Albedo, IEEE4)
+EndTable
+
+DataTable (CNR4_Test_Avg_1min, True, -1)
+  DataInterval (0, 1, Min, 10)
+  TableFile ("CRD:CNR4_Test_Avg_1min", 64, -1, 0, 60, Min, CardFileWritten, LastCardFile)
+  Average (4, CNR4_Wm2(1), IEEE4, False)
+  Average (1, SW_Net, IEEE4, False)
+  Average (1, LW_Net_Uncorrected, IEEE4, False)
+  Average (1, NetRadiation_Uncorrected, IEEE4, False)
+EndTable
+
+BeginProg
+  Scan (1, Sec, 3, 0)
+    PanelTemp (LoggerTemp, 250)
+    Battery (BattVolt)
+
+    'Default differential channels 1 through 4.
+    VoltDiff (CNR4_mV(), 4, mV20C, 1, True, 0, _60Hz, 1.0, 0)
+
+    SW_Up = SW_Up_mV * SW_Up_Mult
+    SW_Down = SW_Down_mV * SW_Down_Mult
+    LW_Up = LW_Up_mV * LW_Up_Mult
+    LW_Down = LW_Down_mV * LW_Down_Mult
+
+    SW_Net = SW_Up - SW_Down
+    LW_Net_Uncorrected = LW_Up - LW_Down
+    NetRadiation_Uncorrected = SW_Net + LW_Net_Uncorrected
+
+    If SW_Up > 0.1 Then
+      Albedo = SW_Down / SW_Up
+    Else
+      Albedo = NAN
+    EndIf
+
+    CallTable CNR4_Test_1Hz
+    CallTable CNR4_Test_Avg_1min
+  NextScan
+EndProg

@@ -1,0 +1,75 @@
+' IRGASON test program for CR3000
+' 20 Hz synchronized sonic, gas, temperature, and pressure data.
+'
+' Standard CR3000 IRGASON SDM wiring:
+'   EC100 SDM Data/Clock/Enable -> SDM-C1/SDM-C2/SDM-C3
+'   EC100 ground and shield -> G
+'
+' Timestamps use the CR3000 clock. Set the logger clock to UTC manually if
+' UTC timestamps are required. CO2 and H2O are recorded as high-rate scalar
+' inputs for eddy-covariance flux calculations; fluxes are not calculated here.
+
+AngleDegrees
+PipeLineMode
+
+Const IRGASON_SDM_Address = 9
+Const IRGASON_OutputMode = 2
+
+Public IRGAData(13)
+Public SonicSpeed
+Public SonicVectorDirDeg
+Public CardFileWritten As Boolean
+Public LastCardFile As String * 64
+
+Alias IRGAData(1) = Ux
+Alias IRGAData(2) = Uy
+Alias IRGAData(3) = Uz
+Alias IRGAData(4) = SonicTemp
+Alias IRGAData(5) = SonicDiag
+Alias IRGAData(6) = CO2Density
+Alias IRGAData(7) = H2ODensity
+Alias IRGAData(8) = GasDiag
+Alias IRGAData(9) = AirTemp
+Alias IRGAData(10) = AirPressure
+Alias IRGAData(11) = CO2Signal
+Alias IRGAData(12) = H2OSignal
+Alias IRGAData(13) = CO2DensityFastTemp
+
+Units Ux = m/s
+Units Uy = m/s
+Units Uz = m/s
+Units SonicTemp = deg C
+Units CO2Density = mg/m^3
+Units H2ODensity = g/m^3
+Units AirTemp = deg C
+Units AirPressure = kPa
+Units CO2Signal = unitless
+Units H2OSignal = unitless
+Units CO2DensityFastTemp = mg/m^3
+Units SonicSpeed = m/s
+Units SonicVectorDirDeg = degrees
+
+DataTable (IRGASON_20Hz, True, -1)
+  DataInterval (0, 0, mSec, 10)
+  TableFile ("CRD:IRGASON_20Hz", 64, -1, 0, 60, Min, CardFileWritten, LastCardFile)
+  Sample (13, IRGAData(1), IEEE4)
+  Sample (1, SonicSpeed, IEEE4)
+  Sample (1, SonicVectorDirDeg, IEEE4)
+EndTable
+
+BeginProg
+  Scan (50, mSec, 500, 0)
+    EC100 (IRGAData(), IRGASON_SDM_Address, IRGASON_OutputMode)
+
+    SonicSpeed = Sqr(Ux * Ux + Uy * Uy)
+    If SonicSpeed > 0.001 Then
+      'Direction of the wind vector in the sonic coordinate system.
+      SonicVectorDirDeg = ATN2(Uy, Ux)
+      If SonicVectorDirDeg < 0 Then SonicVectorDirDeg = SonicVectorDirDeg + 360
+    Else
+      SonicVectorDirDeg = NAN
+    EndIf
+
+    CallTable IRGASON_20Hz
+  NextScan
+EndProg

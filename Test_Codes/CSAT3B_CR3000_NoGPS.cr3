@@ -1,0 +1,51 @@
+' CSAT-3B standalone test program for CR3000
+' 20 Hz sonic data without GPS.
+'
+' Standard CSAT SDM wiring:
+'   CSAT SDM Data/Clock/Enable -> C1/C2/C3, CSAT ground -> G
+'
+' Timestamps use the CR3000 clock. Set the logger clock to UTC before testing.
+
+AngleDegrees
+PipeLineMode
+
+Const CSAT_SDM_Address = 5
+
+Public CSATData(5)
+Public SonicSpeed
+Public SonicDirAxisDeg
+
+Alias CSATData(1) = Ux
+Alias CSATData(2) = Uy
+Alias CSATData(3) = Uz
+Alias CSATData(4) = SonicTemp
+Alias CSATData(5) = CSATDiag
+
+Units Ux = m/s
+Units Uy = m/s
+Units Uz = m/s
+Units SonicTemp = deg C
+Units SonicSpeed = m/s
+Units SonicDirAxisDeg = degrees
+
+DataTable (Sonic_20Hz, 1, -1)
+  Sample (5, CSATData(1), IEEE4)
+  Sample (1, SonicSpeed, IEEE4)
+  Sample (1, SonicDirAxisDeg, IEEE4)
+EndTable
+
+BeginProg
+  Scan (50, msec, 500, 0)
+    CSAT3B (CSATData(), 0, CSAT_SDM_Address, 0)
+
+    SonicSpeed = Sqr(Ux * Ux + Uy * Uy)
+    If SonicSpeed > 0.001 Then
+      SonicDirAxisDeg = ATN2(Ux, Uy)
+      If SonicDirAxisDeg < 0 Then SonicDirAxisDeg = SonicDirAxisDeg + 360
+    Else
+      SonicDirAxisDeg = NAN
+    EndIf
+
+    CallTable Sonic_20Hz
+  NextScan
+EndProg
