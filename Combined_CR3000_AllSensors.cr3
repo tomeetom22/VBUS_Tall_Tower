@@ -10,6 +10,17 @@
 '   Garmin GPS: Com1 using control ports C1/C2 at 38400 baud.
 '   CNR4 sensitivities are copied from the current test program.
 '   The CNR4 temperature option is Pt-100, not thermistor.
+'
+' GPS16X-HVS to CR3000 wiring:
+'   GPS red   (RJ-45 pin 1, POWER)       -> CR3000 12V
+'   GPS black (RJ-45 pin 2, GROUND)      -> CR3000 G (power/signal ground)
+'   GPS yellow (RJ-45 pin 3, REMOTE ON)  -> CR3000 G (must be grounded to enable GPS)
+'   GPS blue  (RJ-45 pin 4, DATA IN)     <- CR3000 C1 / COM1 Tx
+'   GPS white (RJ-45 pin 5, DATA OUT)    -> CR3000 C2 / COM1 Rx
+'   GPS gray  (RJ-45 pin 6, PPS)          -> not connected
+'   GPS green (RJ-45 pin 7, PORT 2 IN)    -> not connected
+'   GPS violet (RJ-45 pin 8, PORT 2 OUT)  -> not connected
+'   COM1 is a true RS-232 port; cross Tx and Rx as shown above.
 
 AngleDegrees
 PipeLineMode
