@@ -7,20 +7,21 @@
 '   CNR4 radiation: differential channels 1 through 4.
 '   CNR4 temperature: Pt-100 on differential channel 8, Ix1/IXR.
 '   Ozone sensors: differential channels 5, 6, and 7.
-'   Garmin GPS: Com1 using control ports C1/C2 at 38400 baud.
+'   Garmin GPS: Com1 using the VBUS GPS adapter on C1/C2 at 38400 baud.
 '   CNR4 sensitivities are copied from the current test program.
 '   The CNR4 temperature option is Pt-100, not thermistor.
 '
-' GPS16X-HVS to CR3000 wiring:
-'   GPS red   (RJ-45 pin 1, POWER)       -> CR3000 12V
-'   GPS black (RJ-45 pin 2, GROUND)      -> CR3000 G (power/signal ground)
-'   GPS yellow (RJ-45 pin 3, REMOTE ON)  -> CR3000 G (must be grounded to enable GPS)
-'   GPS blue  (RJ-45 pin 4, DATA IN)     <- CR3000 C1 / COM1 Tx
-'   GPS white (RJ-45 pin 5, DATA OUT)    -> CR3000 C2 / COM1 Rx
-'   GPS gray  (RJ-45 pin 6, PPS)          -> not connected
-'   GPS green (RJ-45 pin 7, PORT 2 IN)    -> not connected
-'   GPS violet (RJ-45 pin 8, PORT 2 OUT)  -> not connected
-'   COM1 is a true RS-232 port; cross Tx and Rx as shown above.
+' GPS16X-HVS to CR3000 wiring through the VBUS GPS adapter:
+'   GPS red                    -> CR3000 12V
+'   GPS black                  -> CR3000 G
+'   GPS yellow                 -> CR3000 G
+'   GPS blue                   -> CR3000 G
+'   GPS clear/shield           -> CR3000 G
+'   GPS gray                   -> CR3000 C1 / COM1
+'   GPS white                  -> CR3000 C2 / COM1
+'   GPS green and violet       -> not used by this adapter
+'   This is the adapter wiring used by VBUS_albedo_cart.cr1x/Garmin.DEF;
+'   it is not the direct bare-lead GPS16X-HVS wiring.
 
 AngleDegrees
 PipeLineMode
@@ -225,6 +226,9 @@ DataTable (GPS_0p1Hz, True, -1)
 EndTable
 
 BeginProg
+  'GPS16X-HVS uses the VBUS adapter wiring documented above.
+  'COM1 is the CR3000 C1/C2 RS-232 pair; the adapter connects gray to C1
+  'and white to C2. The adapter grounds black, yellow, blue, and clear/shield.
   SetStatus ("Baudrate(COM1)", GPS_Baud)
 
   Scan (50, mSec, 500, 0)
@@ -251,6 +255,7 @@ BeginProg
       VoltDiff (Ozone_mV(), 3, mV5000, 5, True, 0, _60Hz, 1, 0)
 
       If TimeIntoInterval (0, 10, Sec) Then
+        'Read the Garmin through the VBUS adapter on CR3000 COM1 (C1/C2).
         GPS (GPSData(), Com1, 0, GPS_MaxClockChange_ms, NMEASent(1))
         CallTable GPS_0p1Hz
 
