@@ -93,7 +93,6 @@ Public SW_Net
 Public LW_Net
 Public NetRadiation
 Public Albedo
-Public CNR4_New
 Dim CNR4_PRT_R
 Dim CNR4_R_R0
 
@@ -230,50 +229,46 @@ BeginProg
     'Read IRGASON gas and sonic data.
     EC100 (IRGAData(), IRGASON_Address, IRGASON_OutputMode)
 
-    'Analog measurements must remain outside conditionals in pipeline mode.
-    VoltDiff (CNR4_mV(), 4, mV20C, 1, True, 0, _60Hz, 1.0, 0)
-    Resistance (CNR4_PRT_R, 1, mV200, 8, Ix1, 1, 1500, True, True, 0, _60Hz, 1, 0)
-    VoltDiff (Ozone_mV(), 3, mV5000, 5, True, 0, _60Hz, 1, 0)
-
-    CNR4_New = False
-    If TimeIntoInterval (0, 10, Sec) Then
-      'CNR4 radiation, Pt-100, and derived values.
-      CNR4_R_R0 = CNR4_PRT_R / 100
-      PRT (CNR4_T_C, 1, CNR4_R_R0, 1, 0)
-      CNR4_T_K = CNR4_T_C + 273.15
-
-      SW_Up = SW_Up_mV * SW_Up_Mult
-      SW_Down = SW_Down_mV * SW_Down_Mult
-      LW_Up = LW_Up_mV * LW_Up_Mult
-      LW_Down = LW_Down_mV * LW_Down_Mult
-      SW_Net = SW_Up - SW_Down
-      LW_Net = LW_Up - LW_Down
-      NetRadiation = SW_Net + LW_Net
-
-      If SW_Up > 0.1 Then
-        Albedo = SW_Down / SW_Up
-      Else
-        Albedo = NAN
-      EndIf
-
-      CNR4_New = True
-    EndIf
-
-    If TimeIntoInterval (0, 2, Sec) Then
-      'Ozone sensors on differential channels 5, 6, and 7.
-      Ozone1 = (Ozone1_mV - Ozone1_mV_Offset) * 0.1
-      Ozone2 = (Ozone2_mV - Ozone2_mV_Offset) * 0.1
-      Ozone3 = (Ozone3_mV - Ozone3_mV_Offset) * 0.1
-    EndIf
-
     CallTable Fast_20Hz
-    If CNR4_New Then CallTable CNR4_0p1Hz
-    CallTable Ozone_0p5Hz
   NextScan
 
   SlowSequence
-    Scan (10, Sec, 0, 0)
-      GPS (GPSData(), Com1, 0, GPS_MaxClockChange_ms, NMEASent(1))
-      CallTable GPS_0p1Hz
+    Scan (2, Sec, 0, 0)
+      If TimeIntoInterval (0, 10, Sec) Then
+        GPS (GPSData(), Com1, 0, GPS_MaxClockChange_ms, NMEASent(1))
+        CallTable GPS_0p1Hz
+
+        'CNR4 radiation, Pt-100, and derived values.
+        VoltDiff (CNR4_mV(), 4, mV20C, 1, True, 0, _60Hz, 1.0, 0)
+        Resistance (CNR4_PRT_R, 1, mV200, 8, Ix1, 1, 1500, True, True, 0, _60Hz, 1, 0)
+        CNR4_R_R0 = CNR4_PRT_R / 100
+        PRT (CNR4_T_C, 1, CNR4_R_R0, 1, 0)
+        CNR4_T_K = CNR4_T_C + 273.15
+
+        SW_Up = SW_Up_mV * SW_Up_Mult
+        SW_Down = SW_Down_mV * SW_Down_Mult
+        LW_Up = LW_Up_mV * LW_Up_Mult
+        LW_Down = LW_Down_mV * LW_Down_Mult
+        SW_Net = SW_Up - SW_Down
+        LW_Net = LW_Up - LW_Down
+        NetRadiation = SW_Net + LW_Net
+
+        If SW_Up > 0.1 Then
+          Albedo = SW_Down / SW_Up
+        Else
+          Albedo = NAN
+        EndIf
+
+        CallTable CNR4_0p1Hz
+      EndIf
+
+      If TimeIntoInterval (0, 2, Sec) Then
+        'Ozone sensors on differential channels 5, 6, and 7.
+        VoltDiff (Ozone_mV(), 3, mV5000, 5, True, 0, _60Hz, 1, 0)
+        Ozone1 = (Ozone1_mV - Ozone1_mV_Offset) * 0.1
+        Ozone2 = (Ozone2_mV - Ozone2_mV_Offset) * 0.1
+        Ozone3 = (Ozone3_mV - Ozone3_mV_Offset) * 0.1
+        CallTable Ozone_0p5Hz
+      EndIf
     NextScan
 EndProg
