@@ -7,7 +7,8 @@ missing-value flag is replaced with NaN before plotting.
 
 All fast 20 Hz files are combined into one figure.  The slower sensor
 families are plotted in separate figures (Ozone, GPS, and CNR4), with the
-available files for each family overlaid in that figure.
+available files for each family overlaid in that figure.  Figures are saved
+as PNG files; no plot windows are opened.
 
 Usage:
     python plot_test_data.py
@@ -40,7 +41,9 @@ COLUMN_LABELS = {
         "CSAT2_Ux (m/s)", "CSAT2_Uy (m/s)", "CSAT2_Uz (m/s)", "CSAT2_Ts (deg C)",
         "CSAT3_Ux (m/s)", "CSAT3_Uy (m/s)", "CSAT3_Uz (m/s)", "CSAT3_Ts (deg C)",
         "IRGA_Ux (m/s)", "IRGA_Uy (m/s)", "IRGA_Uz (m/s)", "IRGA_Ts (deg C)",
-        "IRGA_SonicDiag", "CO2_Density (mg/m^3)", "H2O_Density (g/m^3)",
+        "IRGA_SonicDiag", "CO2_Density (mg/m^3)", "CO2 (ppm)",
+        "H2O_Density (g/m^3)",
+        "Relative Humidity (%)",
         "IRGA_GasDiag", "IRGA_AirTemp (deg C)", "IRGA_AirPressure (kPa)",
         "CO2_Signal", "H2O_Signal", "CO2_Density_FastTemp (mg/m^3)",
         "BattVolt (V)", "LoggerTemp (deg C)",
@@ -114,9 +117,58 @@ def labels_for(sensor_name: str, column_count: int) -> list[str]:
     ]
 
 
+def add_derived_products(data: np.ndarray) -> np.ndarray:
+    """Insert CO2 ppm and RH, calculated from IRGASON measurements.
+
+    H2O density is in g/m^3 and air temperature is in degrees C.  Vapor
+    pressure is calculated with the ideal gas law, and saturation vapor
+    pressure uses the Buck equation over liquid water.  CO2 density is in
+    mg/m^3, air pressure is in kPa, and CO2 ppm is calculated as a molar
+    mixing ratio using the ideal gas law.
+    """
+    co2_density = data[:, 17]
+    h2o_density = data[:, 18]
+    air_temperature_c = data[:, 20]
+    air_pressure_kpa = data[:, 21]
+    temperature_k = air_temperature_c + 273.15
+
+    co2_ppm = (
+        co2_density * 8.314462618 * temperature_k
+        / (44.01 * air_pressure_kpa)
+    )
+
+    vapor_pressure_hpa = h2o_density * 461.5 * temperature_k / 100000.0
+    saturation_pressure_hpa = 6.1121 * np.exp(
+        (18.678 - air_temperature_c / 234.5)
+        * (air_temperature_c / (257.14 + air_temperature_c))
+    )
+    relative_humidity = 100.0 * vapor_pressure_hpa / saturation_pressure_hpa
+
+    # Keep the derived series missing wherever either source measurement is
+    # missing or physically invalid.
+    invalid = (
+        ~np.isfinite(co2_density)
+        | ~np.isfinite(h2o_density)
+        | ~np.isfinite(air_temperature_c)
+        | ~np.isfinite(air_pressure_kpa)
+        | (temperature_k <= 0)
+        | (air_pressure_kpa <= 0)
+    )
+    co2_ppm[invalid] = np.nan
+    relative_humidity[invalid] = np.nan
+
+    return np.column_stack(
+        (data[:, :18], co2_ppm, data[:, 18:19], relative_humidity, data[:, 19:])
+    )
+
+
 def plot_combined_fast(files: list[Path], output_directory: Path) -> None:
     """Plot all 20 Hz files together in one figure."""
-    datasets = [read_dat_file(path) for path in files]
+    datasets = [
+        (add_derived_products(data), timestamps)
+        for path in files
+        for data, timestamps in [read_dat_file(path)]
+    ]
     column_count = max(data.shape[1] for data, _ in datasets)
     figure, axes = plt.subplots(
         column_count,
@@ -218,7 +270,7 @@ def main() -> None:
         if files:
             plot_slow_family(sensor_name, files, args.output_directory)
 
-    plt.show()
+    plt.close("all")
 
 
 if __name__ == "__main__":
