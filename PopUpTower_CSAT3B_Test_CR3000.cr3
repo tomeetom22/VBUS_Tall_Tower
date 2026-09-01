@@ -1,0 +1,44 @@
+' Pop-up tower CSAT3B test for CR3000
+' 20 Hz raw u, v, w, and sonic temperature.
+
+PipeLineMode
+
+' Change only if this CSAT3B uses another SDM address.
+Const CSAT_SDM_Address = 8
+Const FastFileRecords = 36000
+
+Public CSAT(5)
+Public BattVolt
+Public LoggerTemp
+Public FileWritten As Boolean
+Public LastFile As String * 64
+
+Alias CSAT(1) = Ux
+Alias CSAT(2) = Uy
+Alias CSAT(3) = Uz
+Alias CSAT(4) = SonicTemp
+Alias CSAT(5) = SonicDiag
+
+Units Ux = m/s
+Units Uy = m/s
+Units Uz = m/s
+Units SonicTemp = deg C
+Units BattVolt = V
+Units LoggerTemp = deg C
+
+DataTable (CSAT_20Hz, True, -1)
+  DataInterval (0, 0, mSec, 10)
+  TableFile ("CRD:CSAT_20Hz", 64, -1, FastFileRecords, 0, Sec, FileWritten, LastFile)
+  Sample (4, CSAT(1), IEEE4)
+  Sample (1, BattVolt, IEEE4)
+  Sample (1, LoggerTemp, IEEE4)
+EndTable
+
+BeginProg
+  Scan (50, mSec, 500, 0)
+    Battery (BattVolt)
+    PanelTemp (LoggerTemp, 250)
+    CSAT3B (CSAT(), 0, CSAT_SDM_Address, 0)
+    CallTable CSAT_20Hz
+  NextScan
+EndProg

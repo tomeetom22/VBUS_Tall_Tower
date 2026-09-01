@@ -1,0 +1,162 @@
+' Pop-up tower CR3000 draft
+' One CSAT3B and one IRGASON at 20 Hz; CNR1 at 0.1 Hz.
+
+' Assumptions
+'   CSAT3B SDM address: 8.
+'   IRGASON SDM address: 9.
+'   CNR1 radiation: differential channels 1 through 4.
+'   CNR1 Pt-100: differential channel 6; Ix1/IXR.
+'   CNR1 sensitivity values below must be replaced from its certificate.
+
+PipeLineMode
+
+Const CSAT_SDM_Address = 8
+Const IRGASON_SDM_Address = 9
+Const IRGASON_OutputMode = 2
+
+' Replace with the CNR1 calibration certificate values in uV/(W/m^2).
+Const CNR1_SWUp_Sensitivity = 7.30
+Const CNR1_SWDown_Sensitivity = 7.30
+Const CNR1_LWUp_Sensitivity = 7.30
+Const CNR1_LWDown_Sensitivity = 7.30
+
+Const CNR1_SWUp_Mult = 1000 / CNR1_SWUp_Sensitivity
+Const CNR1_SWDown_Mult = 1000 / CNR1_SWDown_Sensitivity
+Const CNR1_LWUp_Mult = 1000 / CNR1_LWUp_Sensitivity
+Const CNR1_LWDown_Mult = 1000 / CNR1_LWDown_Sensitivity
+
+Const FastFileRecords = 36000
+Const CNR1FileRecords = 180
+
+Public CSAT(5)
+Public IRGA(13)
+Public BattVolt
+Public LoggerTemp
+
+Alias CSAT(1) = CSAT_Ux
+Alias CSAT(2) = CSAT_Uy
+Alias CSAT(3) = CSAT_Uz
+Alias CSAT(4) = CSAT_Ts
+Alias CSAT(5) = CSAT_Diag
+
+Alias IRGA(1) = IRGA_Ux
+Alias IRGA(2) = IRGA_Uy
+Alias IRGA(3) = IRGA_Uz
+Alias IRGA(4) = IRGA_Ts
+Alias IRGA(5) = IRGA_SonicDiag
+Alias IRGA(6) = CO2_Density
+Alias IRGA(7) = H2O_Density
+Alias IRGA(8) = IRGA_GasDiag
+Alias IRGA(9) = IRGA_AirTemp
+Alias IRGA(10) = IRGA_AirPressure
+Alias IRGA(11) = CO2_Signal
+Alias IRGA(12) = H2O_Signal
+Alias IRGA(13) = CO2_Density_FastTemp
+
+Public CNR1_mV(4)
+Public CNR1(4)
+Public CNR1_T_C
+Public CNR1_T_K
+Public SW_Net
+Public LW_Net
+Public NetRadiation
+Public Albedo
+Dim CNR1_PRT_R
+Dim CNR1_R_R0
+
+Alias CNR1_mV(1) = SW_Up_mV
+Alias CNR1_mV(2) = SW_Down_mV
+Alias CNR1_mV(3) = LW_Up_mV
+Alias CNR1_mV(4) = LW_Down_mV
+
+Alias CNR1(1) = SW_Up
+Alias CNR1(2) = SW_Down
+Alias CNR1(3) = LW_Up
+Alias CNR1(4) = LW_Down
+
+Public FastFileWritten As Boolean
+Public CNR1FileWritten As Boolean
+Public LastFastFile As String * 64
+Public LastCNR1File As String * 64
+
+Units CSAT_Ux = m/s
+Units CSAT_Uy = m/s
+Units CSAT_Uz = m/s
+Units CSAT_Ts = deg C
+Units IRGA_Ux = m/s
+Units IRGA_Uy = m/s
+Units IRGA_Uz = m/s
+Units IRGA_Ts = deg C
+Units CO2_Density = mg/m^3
+Units H2O_Density = g/m^3
+Units IRGA_AirTemp = deg C
+Units IRGA_AirPressure = kPa
+Units CNR1_T_C = deg C
+Units CNR1_T_K = K
+Units SW_Up = W/m^2
+Units SW_Down = W/m^2
+Units LW_Up = W/m^2
+Units LW_Down = W/m^2
+Units SW_Net = W/m^2
+Units LW_Net = W/m^2
+Units NetRadiation = W/m^2
+Units Albedo = ratio
+Units BattVolt = V
+Units LoggerTemp = deg C
+
+DataTable (Fast_20Hz, True, -1)
+  DataInterval (0, 0, mSec, 10)
+  TableFile ("CRD:PopUp_Fast_20Hz", 64, -1, FastFileRecords, 0, Sec, FastFileWritten, LastFastFile)
+  Sample (4, CSAT(1), IEEE4)
+  Sample (13, IRGA(1), IEEE4)
+  Sample (1, BattVolt, IEEE4)
+  Sample (1, LoggerTemp, IEEE4)
+EndTable
+
+DataTable (CNR1_0p1Hz, True, -1)
+  DataInterval (0, 10, Sec, 10)
+  TableFile ("CRD:PopUp_CNR1_0p1Hz", 64, -1, CNR1FileRecords, 0, Sec, CNR1FileWritten, LastCNR1File)
+  Sample (4, CNR1_mV(1), IEEE4)
+  Sample (4, CNR1(1), IEEE4)
+  Sample (1, CNR1_T_C, IEEE4)
+  Sample (1, SW_Net, IEEE4)
+  Sample (1, LW_Net, IEEE4)
+  Sample (1, NetRadiation, IEEE4)
+  Sample (1, Albedo, IEEE4)
+EndTable
+
+BeginProg
+  Scan (50, mSec, 500, 0)
+    Battery (BattVolt)
+    PanelTemp (LoggerTemp, 250)
+    CSAT3B (CSAT(), 0, CSAT_SDM_Address, 0)
+    EC100 (IRGA(), IRGASON_SDM_Address, IRGASON_OutputMode)
+    CallTable Fast_20Hz
+  NextScan
+
+  SlowSequence
+    Scan (10, Sec, 0, 0)
+      VoltDiff (CNR1_mV(), 4, mV20C, 1, True, 0, _60Hz, 1.0, 0)
+      Resistance (CNR1_PRT_R, 1, mV200, 6, Ix1, 1, 1675, True, True, 0, _60Hz, 1, 0)
+
+      CNR1_R_R0 = CNR1_PRT_R / 100
+      PRT (CNR1_T_C, 1, CNR1_R_R0, 1, 0)
+      CNR1_T_K = CNR1_T_C + 273.15
+
+      SW_Up = SW_Up_mV * CNR1_SWUp_Mult
+      SW_Down = SW_Down_mV * CNR1_SWDown_Mult
+      LW_Up = LW_Up_mV * CNR1_LWUp_Mult
+      LW_Down = LW_Down_mV * CNR1_LWDown_Mult
+      SW_Net = SW_Up - SW_Down
+      LW_Net = LW_Up - LW_Down
+      NetRadiation = SW_Net + LW_Net
+
+      If SW_Up > 0.1 Then
+        Albedo = SW_Down / SW_Up
+      Else
+        Albedo = NAN
+      EndIf
+
+      CallTable CNR1_0p1Hz
+    NextScan
+EndProg
