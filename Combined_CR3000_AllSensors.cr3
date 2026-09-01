@@ -6,7 +6,7 @@
 '   IRGASON address: 9.
 '   CNR4 radiation: differential channels 1 through 4.
 '   CNR4 temperature: Pt-100 on differential channel 8, Ix1/IXR.
-'   Ozone sensors: differential channels 5, 6, and 7.
+'   Ozone sensors: differential channels 5, and 6.
 '   Garmin GPS: Com1 using the VBUS GPS adapter on C1/C2 at 38400 baud.
 '   CNR4 sensitivities are copied from the current test program.
 '   The CNR4 temperature option is Pt-100, not thermistor.
@@ -47,7 +47,6 @@ Const LW_Down_Mult = 1000 / LW_Down_Sensitivity
 ' Set these three offsets from the individual ozone calibrations.
 Const Ozone1_mV_Offset = 0
 Const Ozone2_mV_Offset = 0
-Const Ozone3_mV_Offset = 0
 
 Const FastFileRecords = 36000
 Const OzoneFileRecords = 900
@@ -118,16 +117,14 @@ Alias CNR4_Wm2(2) = SW_Down
 Alias CNR4_Wm2(3) = LW_Up
 Alias CNR4_Wm2(4) = LW_Down
 
-Public Ozone_mV(3)
-Public Ozone_ppbv(3)
+Public Ozone_mV(2)
+Public Ozone_ppbv(2)
 
 Alias Ozone_mV(1) = Ozone1_mV
 Alias Ozone_mV(2) = Ozone2_mV
-Alias Ozone_mV(3) = Ozone3_mV
 
 Alias Ozone_ppbv(1) = Ozone1
 Alias Ozone_ppbv(2) = Ozone2
-Alias Ozone_ppbv(3) = Ozone3
 
 Public GPSData(15)
 Alias GPSData(5) = GPS_SpeedKnots
@@ -215,8 +212,8 @@ EndTable
 DataTable (Ozone_0p5Hz, True, -1)
   DataInterval (0, 2, Sec, 10)
   TableFile ("CRD:Ozone_0p5Hz", 64, -1, OzoneFileRecords, 0, Sec, OzoneFileWritten, LastOzoneFile)
-  Sample (3, Ozone_mV(1), IEEE4)
-  Sample (3, Ozone_ppbv(1), IEEE4)
+  Sample (2, Ozone_mV(1), IEEE4)
+  Sample (2, Ozone_ppbv(1), IEEE4)
 EndTable
 
 DataTable (GPS_0p1Hz, True, -1)
@@ -252,7 +249,7 @@ BeginProg
       'Analog measurements must remain outside conditionals in pipeline mode.
       VoltDiff (CNR4_mV(), 4, mV20C, 1, True, 0, _60Hz, 1.0, 0)
       Resistance (CNR4_PRT_R, 1, mV200, 8, Ix1, 1, 1500, True, True, 0, _60Hz, 1, 0)
-      VoltDiff (Ozone_mV(), 3, mV5000, 5, True, 0, _60Hz, 1, 0)
+      VoltDiff (Ozone_mV(), 2, mV5000, 5, True, 0, _60Hz, 1, 0)
 
       If TimeIntoInterval (0, 10, Sec) Then
         'Read the Garmin through the VBUS adapter on CR3000 COM1 (C1/C2).
@@ -282,10 +279,9 @@ BeginProg
       EndIf
 
       If TimeIntoInterval (0, 2, Sec) Then
-        'Ozone sensors on differential channels 5, 6, and 7.
+        'Ozone sensors on differential channels 5, and 6.
         Ozone1 = (Ozone1_mV - Ozone1_mV_Offset) * 0.1
         Ozone2 = (Ozone2_mV - Ozone2_mV_Offset) * 0.1
-        Ozone3 = (Ozone3_mV - Ozone3_mV_Offset) * 0.1
         CallTable Ozone_0p5Hz
       EndIf
     NextScan
