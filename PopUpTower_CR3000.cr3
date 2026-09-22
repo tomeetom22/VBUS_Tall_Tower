@@ -1,0 +1,134 @@
+' Pop-up tower CR3000 program
+' One CSAT3B (SDM address 8), one legacy CSAT3 (SDM address 2), and Garmin GPS.
+' Both sonic anemometers are group-triggered and sampled at 20 Hz.
+
+' Assumptions
+'   CSAT3B SDM address: 8.
+'   Legacy CSAT3 SDM address: 2.
+'   Garmin GPS: COM1 using the VBUS GPS adapter on C1/C2 at 38400 baud.
+'
+' GPS16X-HVS to CR3000 wiring through the VBUS GPS adapter:
+'   GPS red                    -> CR3000 12V
+'   GPS black                  -> CR3000 G
+'   GPS yellow                 -> CR3000 G
+'   GPS blue                   -> CR3000 G
+'   GPS clear/shield           -> CR3000 G
+'   GPS gray                   -> CR3000 C1 / COM1
+'   GPS white                  -> CR3000 C2 / COM1
+'   GPS green and violet       -> not used by this adapter
+'   This is the adapter wiring used by VBUS_albedo_cart.cr1x/Garmin.DEF;
+'   it is not the direct bare-lead GPS16X-HVS wiring.
+
+AngleDegrees
+PipeLineMode
+
+Const CSAT3B_SDM_Address = 8
+Const CSAT3_SDM_Address = 2
+Const GPS_Baud = 38400
+Const GPS_MaxClockChange_ms = 500
+
+' Each sonic table holds 30 minutes of 20 Hz records.  The GPS table holds
+' 30 minutes of 1 Hz records before a new card file is started.
+Const SonicFileRecords = 36000
+Const GPSFileRecords = 1800
+
+Dim NMEASent(2) As String * 100
+
+Public CSAT3BData(5)
+Public CSAT3Data(5)
+Public GPSData(15)
+Public BattVolt
+Public LoggerTemp
+
+Alias CSAT3BData(1) = CSAT3B_Ux
+Alias CSAT3BData(2) = CSAT3B_Uy
+Alias CSAT3BData(3) = CSAT3B_Uz
+Alias CSAT3BData(4) = CSAT3B_Ts
+Alias CSAT3BData(5) = CSAT3B_Diag
+
+Alias CSAT3Data(1) = CSAT3_Ux
+Alias CSAT3Data(2) = CSAT3_Uy
+Alias CSAT3Data(3) = CSAT3_Uz
+Alias CSAT3Data(4) = CSAT3_Ts
+Alias CSAT3Data(5) = CSAT3_Diag
+
+Alias GPSData(5) = GPS_SpeedKnots
+Alias GPSData(6) = GPS_CourseDeg
+Alias GPSData(8) = GPS_FixQuality
+Alias GPSData(9) = GPS_Satellites
+Alias GPSData(10) = GPS_Altitude_m
+Alias GPSData(11) = GPS_PPS_us
+Alias GPSData(13) = GPS_Ready
+
+Public CSAT3BFileWritten As Boolean
+Public CSAT3FileWritten As Boolean
+Public GPSFileWritten As Boolean
+Public LastCSAT3BFile As String * 64
+Public LastCSAT3File As String * 64
+Public LastGPSFile As String * 64
+
+Units CSAT3B_Ux = m/s
+Units CSAT3B_Uy = m/s
+Units CSAT3B_Uz = m/s
+Units CSAT3B_Ts = deg C
+Units CSAT3_Ux = m/s
+Units CSAT3_Uy = m/s
+Units CSAT3_Uz = m/s
+Units CSAT3_Ts = deg C
+Units GPS_SpeedKnots = knots
+Units GPS_CourseDeg = degrees
+Units GPS_Altitude_m = m
+Units GPS_FixQuality = code
+Units GPS_Satellites = count
+Units GPS_PPS_us = us
+Units GPS_Ready = code
+Units BattVolt = V
+Units LoggerTemp = deg C
+
+' Each sensor has an independent table and card file.
+DataTable (CSAT3B_20Hz, True, -1)
+  DataInterval (0, 0, mSec, 10)
+  TableFile ("CRD:PopUp_CSAT3B_20Hz", 64, -1, SonicFileRecords, 0, Sec, CSAT3BFileWritten, LastCSAT3BFile)
+  Sample (4, CSAT3BData(1), IEEE4)
+  Sample (1, BattVolt, IEEE4)
+  Sample (1, LoggerTemp, IEEE4)
+EndTable
+
+DataTable (CSAT3_20Hz, True, -1)
+  DataInterval (0, 0, mSec, 10)
+  TableFile ("CRD:PopUp_CSAT3_20Hz", 64, -1, SonicFileRecords, 0, Sec, CSAT3FileWritten, LastCSAT3File)
+  Sample (4, CSAT3Data(1), IEEE4)
+EndTable
+
+DataTable (GPS_1Hz, True, -1)
+  DataInterval (0, 1, Sec, 10)
+  TableFile ("CRD:PopUp_GPS_1Hz", 64, -1, GPSFileRecords, 0, Sec, GPSFileWritten, LastGPSFile)
+  Sample (15, GPSData(1), IEEE4)
+EndTable
+
+BeginProg
+  ' GPS16X-HVS uses the VBUS adapter wiring documented above. COM1 is the
+  ' CR3000 C1/C2 RS-232 pair: gray to C1 and white to C2.
+  SetStatus ("Baudrate(COM1)", GPS_Baud)
+
+  Scan (50, mSec, 500, 0)
+    Battery (BattVolt)
+    PanelTemp (LoggerTemp, 250)
+
+    ' Trigger both SDM sonics at the same instant, then retrieve their data.
+    SDMTrigger
+    CSAT3B (CSAT3BData(), 0, CSAT3B_SDM_Address, 0)
+    ' Command 98 retrieves wind and sonic temperature after SDMTrigger.
+    CSAT3 (CSAT3Data(), 1, CSAT3_SDM_Address, 98, 20)
+
+    CallTable CSAT3B_20Hz
+    CallTable CSAT3_20Hz
+  NextScan
+
+  SlowSequence
+    Scan (1, Sec, 0, 0)
+      ' Read the Garmin through the VBUS adapter on CR3000 COM1 (C1/C2).
+      GPS (GPSData(), Com1, 0, GPS_MaxClockChange_ms, NMEASent(1))
+      CallTable GPS_1Hz
+    NextScan
+EndProg
