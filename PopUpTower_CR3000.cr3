@@ -1,10 +1,12 @@
 ' Pop-up tower CR3000 program
-' One CSAT3B (SDM address 8), one legacy CSAT3 (SDM address 2), and Garmin GPS.
+' One CSAT3B (SDM address 8), one legacy CSAT3 (SDM address 2), one ozone
+' sensor on differential channel 5, and Garmin GPS.
 ' Both sonic anemometers are group-triggered and sampled at 20 Hz.
 
 ' Assumptions
 '   CSAT3B SDM address: 8.
 '   Legacy CSAT3 SDM address: 2.
+'   Ozone sensor: differential channel 5.
 '   Garmin GPS: COM1 using the VBUS GPS adapter on C1/C2 at 38400 baud.
 '
 ' GPS16X-HVS to CR3000 wiring through the VBUS GPS adapter:
@@ -27,16 +29,21 @@ Const CSAT3_SDM_Address = 2
 Const GPS_Baud = 38400
 Const GPS_MaxClockChange_ms = 500
 
-' Each sonic table holds 30 minutes of 20 Hz records.  The GPS table holds
-' 30 minutes of 1 Hz records before a new card file is started.
-Const SonicFileRecords = 36000
-Const GPSFileRecords = 1800
+' Set this offset from the individual ozone calibration.
+Const Ozone_mV_Offset = 0
+
+' One daily file per table at the table's respective sampling frequency.
+Const SonicFileRecords = 1728000
+Const OzoneFileRecords = 43200
+Const GPSFileRecords = 86400
 
 Dim NMEASent(2) As String * 100
 
 Public CSAT3BData(5)
 Public CSAT3Data(5)
 Public GPSData(15)
+Public Ozone_mV
+Public Ozone_ppbv
 Public BattVolt
 Public LoggerTemp
 
@@ -63,9 +70,11 @@ Alias GPSData(13) = GPS_Ready
 Public CSAT3BFileWritten As Boolean
 Public CSAT3FileWritten As Boolean
 Public GPSFileWritten As Boolean
+Public OzoneFileWritten As Boolean
 Public LastCSAT3BFile As String * 64
 Public LastCSAT3File As String * 64
 Public LastGPSFile As String * 64
+Public LastOzoneFile As String * 64
 
 Units CSAT3B_Ux = m/s
 Units CSAT3B_Uy = m/s
@@ -82,6 +91,8 @@ Units GPS_FixQuality = code
 Units GPS_Satellites = count
 Units GPS_PPS_us = us
 Units GPS_Ready = code
+Units Ozone_mV = mV
+Units Ozone_ppbv = ppbv
 Units BattVolt = V
 Units LoggerTemp = deg C
 
@@ -106,6 +117,13 @@ DataTable (GPS_1Hz, True, -1)
   Sample (15, GPSData(1), IEEE4)
 EndTable
 
+DataTable (Ozone_0p5Hz, True, -1)
+  DataInterval (0, 2, Sec, 10)
+  TableFile ("CRD:PopUp_Ozone_0p5Hz", 64, -1, OzoneFileRecords, 0, Sec, OzoneFileWritten, LastOzoneFile)
+  Sample (1, Ozone_mV, IEEE4)
+  Sample (1, Ozone_ppbv, IEEE4)
+EndTable
+
 BeginProg
   ' GPS16X-HVS uses the VBUS adapter wiring documented above. COM1 is the
   ' CR3000 C1/C2 RS-232 pair: gray to C1 and white to C2.
@@ -127,6 +145,14 @@ BeginProg
 
   SlowSequence
     Scan (1, Sec, 0, 0)
+      'Ozone sensor on differential channel 5.
+      VoltDiff (Ozone_mV, 1, mV5000, 5, True, 0, _60Hz, 1.0, 0)
+
+      If TimeIntoInterval (0, 2, Sec) Then
+        Ozone_ppbv = (Ozone_mV - Ozone_mV_Offset) * 0.1
+        CallTable Ozone_0p5Hz
+      EndIf
+
       ' Read the Garmin through the VBUS adapter on CR3000 COM1 (C1/C2).
       GPS (GPSData(), Com1, 0, GPS_MaxClockChange_ms, NMEASent(1))
       CallTable GPS_1Hz

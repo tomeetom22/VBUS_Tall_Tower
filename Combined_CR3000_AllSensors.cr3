@@ -48,10 +48,11 @@ Const LW_Down_Mult = 1000 / LW_Down_Sensitivity
 Const Ozone1_mV_Offset = 0
 Const Ozone2_mV_Offset = 0
 
-Const FastFileRecords = 36000
-Const OzoneFileRecords = 900
-Const GPSFileRecords = 180
-Const CNR4FileRecords = 180
+' One daily file per table at the table's respective sampling frequency.
+Const FastFileRecords = 1728000
+Const OzoneFileRecords = 43200
+Const GPSFileRecords = 8640
+Const CNR4FileRecords = 8640
 
 Dim NMEASent(2) As String * 100
 
