@@ -34,10 +34,10 @@ Const IRGASON_OutputMode = 2
 Const GPS_Baud = 38400
 Const GPS_MaxClockChange_ms = 500
 
-Const SW_Up_Sensitivity = 15.35
-Const SW_Down_Sensitivity = 15.41
-Const LW_Up_Sensitivity = 8.50
-Const LW_Down_Sensitivity = 7.09
+Const SW_Up_Sensitivity = 11.21
+Const SW_Down_Sensitivity = 12.22
+Const LW_Up_Sensitivity = 11.84
+Const LW_Down_Sensitivity = 12.02
 
 Const SW_Up_Mult = 1000 / SW_Up_Sensitivity
 Const SW_Down_Mult = 1000 / SW_Down_Sensitivity
