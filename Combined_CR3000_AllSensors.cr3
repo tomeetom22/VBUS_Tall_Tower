@@ -48,11 +48,8 @@ Const LW_Down_Mult = 1000 / LW_Down_Sensitivity
 Const Ozone1_mV_Offset = 0
 Const Ozone2_mV_Offset = 0
 
-' One daily file per table at the table's respective sampling frequency.
-Const FastFileRecords = 1728000
-Const OzoneFileRecords = 43200
-Const GPSFileRecords = 8640
-Const CNR4FileRecords = 8640
+' One calendar-day file per table. TableFile closes the active file and opens
+' the next one at 00:00 every day, independent of missed scans or sample rate.
 
 Dim NMEASent(2) As String * 100
 
@@ -189,7 +186,7 @@ Units GPS_Ready = code
 
 DataTable (Fast_20Hz, True, -1)
   DataInterval (0, 0, mSec, 10)
-  TableFile ("CRD:Fast_20Hz", 64, -1, FastFileRecords, 0, Sec, FastFileWritten, LastFastFile)
+  TableFile ("CRD:Fast_20Hz", 64, -1, 0, 1, Day, FastFileWritten, LastFastFile)
   Sample (4, CSAT1Data(1), IEEE4)
   Sample (4, CSAT2Data(1), IEEE4)
   Sample (4, CSAT3Data(1), IEEE4)
@@ -200,7 +197,7 @@ EndTable
 
 DataTable (CNR4_0p1Hz, True, -1)
   DataInterval (0, 10, Sec, 10)
-  TableFile ("CRD:CNR4_0p1Hz", 64, -1, CNR4FileRecords, 0, Sec, CNR4FileWritten, LastCNR4File)
+  TableFile ("CRD:CNR4_0p1Hz", 64, -1, 0, 1, Day, CNR4FileWritten, LastCNR4File)
   Sample (4, CNR4_mV(1), IEEE4)
   Sample (4, CNR4_Wm2(1), IEEE4)
   Sample (1, CNR4_T_C, IEEE4)
@@ -212,14 +209,14 @@ EndTable
 
 DataTable (Ozone_0p5Hz, True, -1)
   DataInterval (0, 2, Sec, 10)
-  TableFile ("CRD:Ozone_0p5Hz", 64, -1, OzoneFileRecords, 0, Sec, OzoneFileWritten, LastOzoneFile)
+  TableFile ("CRD:Ozone_0p5Hz", 64, -1, 0, 1, Day, OzoneFileWritten, LastOzoneFile)
   Sample (2, Ozone_mV(1), IEEE4)
   Sample (2, Ozone_ppbv(1), IEEE4)
 EndTable
 
 DataTable (GPS_0p1Hz, True, -1)
   DataInterval (0, 10, Sec, 10)
-  TableFile ("CRD:GPS_0p1Hz", 64, -1, GPSFileRecords, 0, Sec, GPSFileWritten, LastGPSFile)
+  TableFile ("CRD:GPS_0p1Hz", 64, -1, 0, 1, Day, GPSFileWritten, LastGPSFile)
   Sample (15, GPSData(1), IEEE4)
 EndTable
 

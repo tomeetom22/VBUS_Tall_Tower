@@ -267,27 +267,30 @@ def format_axes(axis: plt.Axes, timestamps: list[datetime]) -> None:
     axis.grid(True, alpha=0.3)
     axis.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d\n%H:%M"))
     axis.set_xlabel("UTC time (night shading uses America/Denver)")
+    if len(timestamps) > 1:
+        axis.set_xlim(timestamps[0], timestamps[-1])
 
 
 def plot_cnr4_rolling_means(
     timestamps: list[datetime], rolling_data: np.ndarray, output_directory: Path
 ) -> None:
-    """Save 30-minute CNR4 means, with only physically valid albedo shown."""
-    column_count = rolling_data.shape[1]
+    """Save only the requested 30-minute CNR4 radiation and albedo means."""
+    columns = [5, 11, 12]  # SW down, net radiation, albedo.
+    columns = [column for column in columns if column < rolling_data.shape[1]]
     figure, axes = plt.subplots(
-        column_count,
+        len(columns),
         1,
         sharex=True,
-        figsize=(14, max(3, 2.1 * column_count)),
+        figsize=(14, max(3, 2.5 * len(columns))),
         squeeze=False,
     )
-    labels = labels_for("CNR4", column_count)
-    for column_index, axis in enumerate(axes[:, 0]):
+    labels = labels_for("CNR4", rolling_data.shape[1])
+    for axis, column_index in zip(axes[:, 0], columns):
         axis.plot(timestamps, rolling_data[:, column_index], linewidth=0.8)
         axis.set_ylabel(labels[column_index])
         format_axes(axis, timestamps)
 
-    figure.suptitle("CNR4: trailing 30-minute rolling means")
+    figure.suptitle("CNR4: trailing 30-minute rolling means (SW down, net radiation, albedo)")
     figure.tight_layout()
     figure.savefig(
         output_directory / "cnr4_30min_rolling_mean.png",
@@ -406,6 +409,77 @@ def plot_velocity_deviations(
     plt.close(figure)
 
 
+def plot_irga_wind_rose(minute_data: np.ndarray, output_directory: Path) -> None:
+    """Plot a meteorological wind-from rose from the top IRGASON.
+
+    The sonic is oriented with +Ux toward true west (270 degrees). With the
+    right-handed sonic coordinate system and +Uz upward, +Uy points south.
+    The resulting direction is converted from velocity-toward to the usual
+    meteorological wind-from convention.
+    """
+    if minute_data.shape[1] < 14:
+        return
+
+    u_component = minute_data[:, 12]
+    v_component = minute_data[:, 13]
+    speed_all = np.hypot(u_component, v_component)
+    finite_speed = np.isfinite(speed_all)
+    valid = finite_speed & (speed_all >= 0.1)
+    if not np.any(valid):
+        return
+
+    # +Ux is west and +Uy is south: 90 - atan2(v, u) is the wind-from azimuth.
+    direction_from = (90.0 - np.degrees(np.arctan2(v_component[valid], u_component[valid]))) % 360.0
+    speed = speed_all[valid]
+    sector_count = 16
+    sector_width = 360.0 / sector_count
+    sector_index = (np.floor((direction_from + sector_width / 2.0) / sector_width).astype(int)
+                    % sector_count)
+    speed_edges = np.array([0.1, 1.0, 3.0, 5.0, 8.0, np.inf])
+    speed_labels = ["0.1–1", "1–3", "3–5", "5–8", "≥8 m/s"]
+    colors = plt.cm.viridis(np.linspace(0.18, 0.88, len(speed_labels)))
+    total_records = np.count_nonzero(finite_speed)
+
+    figure, axis = plt.subplots(figsize=(9, 9), subplot_kw={"projection": "polar"})
+    angles = np.deg2rad(np.arange(sector_count) * sector_width)
+    bottoms = np.zeros(sector_count)
+    for lower, upper, label, color in zip(
+        speed_edges[:-1], speed_edges[1:], speed_labels, colors
+    ):
+        values = np.zeros(sector_count)
+        in_speed_bin = (speed >= lower) & (speed < upper)
+        for sector in range(sector_count):
+            values[sector] = np.count_nonzero(in_speed_bin & (sector_index == sector))
+        values = 100.0 * values / total_records
+        axis.bar(
+            angles,
+            values,
+            width=np.deg2rad(sector_width * 0.9),
+            bottom=bottoms,
+            color=color,
+            edgecolor="white",
+            linewidth=0.5,
+            align="center",
+            label=label,
+        )
+        bottoms += values
+
+    calm_percent = 100.0 * np.count_nonzero(finite_speed & (speed_all < 0.1)) / total_records
+    axis.set_theta_zero_location("N")
+    axis.set_theta_direction(-1)
+    axis.set_thetagrids(np.arange(0, 360, 45), labels=["N", "NE", "E", "SE", "S", "SW", "W", "NW"])
+    axis.set_ylabel("Occurrence (%)", labelpad=28)
+    axis.set_title(
+        "Top IRGASON wind rose: one-minute mean wind-from direction\n"
+        f"Calm (<0.1 m/s): {calm_percent:.1f}%",
+        va="bottom",
+    )
+    axis.legend(title="Wind speed", loc="lower left", bbox_to_anchor=(1.05, 0.0))
+    figure.tight_layout()
+    figure.savefig(output_directory / "irga_wind_rose.png", dpi=150, bbox_inches="tight")
+    plt.close(figure)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -451,6 +525,7 @@ def main() -> None:
             plot_fast_sonic_rolling_means(timestamps, rolling_data, args.output_directory)
             plot_fast_co2_rh_rolling_means(timestamps, rolling_data, args.output_directory)
             plot_velocity_deviations(timestamps, minute_data, rolling_data, args.output_directory)
+            plot_irga_wind_rose(minute_data, args.output_directory)
         elif sensor_name == "CNR4":
             if minute_data.shape[1] > 12:
                 rolling_data[~valid_albedo, 12] = np.nan
