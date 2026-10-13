@@ -2,3 +2,5 @@
 *.csv
 
 /plots/
+/__pycache__/
+/.vscode/

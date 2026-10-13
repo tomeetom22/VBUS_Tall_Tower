@@ -3,8 +3,7 @@
 
 The converted Campbell files are headerless and can be large. This program
 streams them one row at a time, retaining only one-minute means. It then
-plots trailing 30-minute means rather than raw samples. For the fast sonic
-data, it also plots U_30_minute_mean - U_1_minute_mean.
+plots trailing 30-minute means rather than raw samples.
 
 Input data are read only. PNG files are written to plots.
 """
@@ -274,23 +273,47 @@ def format_axes(axis: plt.Axes, timestamps: list[datetime]) -> None:
 def plot_cnr4_rolling_means(
     timestamps: list[datetime], rolling_data: np.ndarray, output_directory: Path
 ) -> None:
-    """Save only the requested 30-minute CNR4 radiation and albedo means."""
-    columns = [5, 11, 12]  # SW down, net radiation, albedo.
-    columns = [column for column in columns if column < rolling_data.shape[1]]
+    """Save 30-minute means for every CNR4 radiation component and albedo."""
+    component_groups = {
+        "Shortwave radiation (W/m²)": [4, 5],  # SW up, SW down
+        "Longwave radiation (W/m²)": [6, 7],  # LW up, LW down
+        "Net radiation (W/m²)": [9, 10, 11],  # SW net, LW net, total net
+        "Albedo": [12],
+    }
+    component_groups = {
+        group_label: [
+            column_index
+            for column_index in column_indices
+            if column_index < rolling_data.shape[1]
+        ]
+        for group_label, column_indices in component_groups.items()
+    }
+    component_groups = {
+        group_label: column_indices
+        for group_label, column_indices in component_groups.items()
+        if column_indices
+    }
     figure, axes = plt.subplots(
-        len(columns),
+        len(component_groups),
         1,
         sharex=True,
-        figsize=(14, max(3, 2.5 * len(columns))),
+        figsize=(14, max(4, 2.75 * len(component_groups))),
         squeeze=False,
     )
     labels = labels_for("CNR4", rolling_data.shape[1])
-    for axis, column_index in zip(axes[:, 0], columns):
-        axis.plot(timestamps, rolling_data[:, column_index], linewidth=0.8)
-        axis.set_ylabel(labels[column_index])
+    for axis, (group_label, column_indices) in zip(axes[:, 0], component_groups.items()):
+        for column_index in column_indices:
+            axis.plot(
+                timestamps,
+                rolling_data[:, column_index],
+                linewidth=0.8,
+                label=labels[column_index],
+            )
+        axis.set_ylabel(group_label)
+        axis.legend(loc="upper right", fontsize="small")
         format_axes(axis, timestamps)
 
-    figure.suptitle("CNR4: trailing 30-minute rolling means (SW down, net radiation, albedo)")
+    figure.suptitle("CNR4: trailing 30-minute rolling means")
     figure.tight_layout()
     figure.savefig(
         output_directory / "cnr4_30min_rolling_mean.png",
@@ -374,41 +397,6 @@ def plot_ozone_rolling_means(
     plt.close(figure)
 
 
-def plot_velocity_deviations(
-    timestamps: list[datetime],
-    minute_data: np.ndarray,
-    rolling_data: np.ndarray,
-    output_directory: Path,
-) -> None:
-    """Plot U_30min - U_1min at one-minute intervals for all sonic channels."""
-    component_indices = {
-        "Ux": [0, 4, 8, 12],
-        "Uy": [1, 5, 9, 13],
-        "Uz": [2, 6, 10, 14],
-    }
-    sensor_names = ["CSAT1", "CSAT2", "CSAT3", "IRGA"]
-    figure, axes = plt.subplots(3, 1, sharex=True, figsize=(14, 10), squeeze=False)
-
-    for axis, (component, indices) in zip(axes[:, 0], component_indices.items()):
-        for sensor_name, column_index in zip(sensor_names, indices):
-            if column_index >= minute_data.shape[1]:
-                continue
-            deviation = rolling_data[:, column_index] - minute_data[:, column_index]
-            axis.plot(timestamps, deviation, linewidth=0.8, label=sensor_name)
-        axis.set_ylabel(f"Ubar_30min - U_1min\n{component} (m/s)")
-        axis.legend(loc="upper right", ncols=2, fontsize="small")
-        format_axes(axis, timestamps)
-
-    figure.suptitle("Turbulent velocity component at one-minute intervals")
-    figure.tight_layout()
-    figure.savefig(
-        output_directory / "fast_velocity_deviation_1min.png",
-        dpi=150,
-        bbox_inches="tight",
-    )
-    plt.close(figure)
-
-
 def plot_irga_wind_rose(minute_data: np.ndarray, output_directory: Path) -> None:
     """Plot a meteorological wind-from rose from the top IRGASON.
 
@@ -486,7 +474,7 @@ def main() -> None:
         "data_directory",
         nargs="?",
         type=Path,
-        default=Path(__file__).parent / "Converted_TT",
+        default="/Users/tomw/Documents/VBUS/LEMSv3/Data/FleetBlock_Data/TallTower",
         help="directory containing converted .dat files (default: Converted_TT)",
     )
     parser.add_argument(
@@ -524,7 +512,6 @@ def main() -> None:
         if sensor_name == "Fast":
             plot_fast_sonic_rolling_means(timestamps, rolling_data, args.output_directory)
             plot_fast_co2_rh_rolling_means(timestamps, rolling_data, args.output_directory)
-            plot_velocity_deviations(timestamps, minute_data, rolling_data, args.output_directory)
             plot_irga_wind_rose(minute_data, args.output_directory)
         elif sensor_name == "CNR4":
             if minute_data.shape[1] > 12:
