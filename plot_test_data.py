@@ -30,9 +30,12 @@ MISSING_VALUE = -7999.0
 TIME_COLUMNS = 4
 ROLLING_WINDOW = timedelta(minutes=30)
 MAX_CO2_PPM = 5000.0
+MIN_OZONE_PPBV = 0.0
+MAX_OZONE_PPBV = 500.0
 SITE_LATITUDE_DEG = 40.7507
 SITE_LONGITUDE_DEG = -111.9014
 MOUNTAIN_TIME = ZoneInfo("America/Denver")
+DEFAULT_HAWTHORNE_DATA_FILE = Path(__file__).parent / "QHW.2026-10-09.CSV"
 
 RAW_COLUMN_LABELS = {
     "Fast": [
@@ -152,6 +155,56 @@ def rolling_mean(
     return means
 
 
+def load_hawthorne_ozone(
+    path: Path, start: datetime, end: datetime
+) -> tuple[list[datetime], np.ndarray]:
+    """Load Hawthorne hourly ozone from a downloaded DEQ/Synoptic CSV file.
+
+    The downloaded QHW CSV uses UTC ISO timestamps and ppb ozone values. Both
+    ozone set columns are supported; the first finite value in each record is
+    used. Only observations within the CR3000 UTC time span are returned.
+    """
+    if not path.is_file():
+        print(f"Hawthorne ozone file not found: {path}", flush=True)
+        return [], np.array([], dtype=float)
+
+    timestamps: list[datetime] = []
+    ozone_ppbv: list[float] = []
+    with path.open(newline="") as data_file:
+        rows = csv.DictReader(
+            (line for line in data_file if not line.startswith("#"))
+        )
+        for row in rows:
+            try:
+                timestamp = datetime.fromisoformat(
+                    row["Date_Time"].replace("Z", "+00:00")
+                ).astimezone(timezone.utc).replace(tzinfo=None)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            ozone = None
+            for column in (
+                "ozone_concentration_set_1",
+                "ozone_concentration_set_2",
+            ):
+                try:
+                    candidate = float(row[column])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if np.isfinite(candidate):
+                    ozone = candidate
+                    break
+            if ozone is None:
+                continue
+            if start <= timestamp <= end:
+                timestamps.append(timestamp)
+                ozone_ppbv.append(
+                    float(np.clip(ozone, MIN_OZONE_PPBV, MAX_OZONE_PPBV))
+                )
+
+    return timestamps, np.asarray(ozone_ppbv, dtype=float)
+
+
 def add_fast_derived_products(data: np.ndarray) -> np.ndarray:
     """Add CO2 ppm and relative humidity to fast-table minute means."""
     if data.shape[1] < 22:
@@ -185,6 +238,18 @@ def add_fast_derived_products(data: np.ndarray) -> np.ndarray:
     co2_ppm[(co2_ppm <= 0.0) | (co2_ppm > MAX_CO2_PPM)] = np.nan
     relative_humidity = np.clip(relative_humidity, 0.0, 100.0)
     return np.column_stack((data[:, :18], co2_ppm, data[:, 18:19], relative_humidity, data[:, 19:]))
+
+
+def limit_ozone_ppbv(data: np.ndarray) -> np.ndarray:
+    """Constrain valid ozone channels to the physically useful 0–500 ppbv range."""
+    if data.shape[1] <= 2:
+        return data
+    bounded = data.copy()
+    final_column = min(4, bounded.shape[1])
+    bounded[:, 2:final_column] = np.clip(
+        bounded[:, 2:final_column], MIN_OZONE_PPBV, MAX_OZONE_PPBV
+    )
+    return bounded
 
 
 def labels_for(sensor_name: str, column_count: int) -> list[str]:
@@ -377,17 +442,36 @@ def plot_fast_co2_rh_rolling_means(
 
 
 def plot_ozone_rolling_means(
-    timestamps: list[datetime], rolling_data: np.ndarray, output_directory: Path
+    timestamps: list[datetime],
+    rolling_data: np.ndarray,
+    output_directory: Path,
+    deq_timestamps: list[datetime],
+    deq_ozone_ppbv: np.ndarray,
 ) -> None:
-    """Overlay ozone ppbv values and intentionally omit the raw millivolt channels."""
+    """Compare CR3000 ozone against Utah DEQ Hawthorne hourly ozone."""
     figure, axis = plt.subplots(figsize=(14, 5))
     for column_index, label in ((2, "Ozone1 (ppbv)"), (3, "Ozone2 (ppbv)")):
         if column_index < rolling_data.shape[1]:
             axis.plot(timestamps, rolling_data[:, column_index], linewidth=0.9, label=label)
+    if deq_timestamps:
+        axis.plot(
+            deq_timestamps,
+            deq_ozone_ppbv,
+            color="black",
+            linestyle="none",
+            marker="o",
+            markersize=3.5,
+            label="Utah DEQ Hawthorne (hourly)",
+        )
+    else:
+        print(
+            "No Utah DEQ Hawthorne ozone records overlap the CR3000 ozone time span.",
+            flush=True,
+        )
     format_axes(axis, timestamps)
     axis.set_ylabel("Ozone (ppbv)")
     axis.legend(loc="upper right")
-    figure.suptitle("Ozone: trailing 30-minute rolling means")
+    figure.suptitle("Ozone: CR3000 trailing 30-minute means and Hawthorne hourly data")
     figure.tight_layout()
     figure.savefig(
         output_directory / "ozone_30min_rolling_mean.png",
@@ -483,6 +567,15 @@ def main() -> None:
         default=Path(__file__).parent / "plots",
         help="directory for PNG output (default: plots)",
     )
+    parser.add_argument(
+        "--hawthorne-file",
+        type=Path,
+        default=DEFAULT_HAWTHORNE_DATA_FILE,
+        help=(
+            "downloaded QHW Hawthorne CSV (default: "
+            f"{DEFAULT_HAWTHORNE_DATA_FILE.name} beside this script)"
+        ),
+    )
     args = parser.parse_args()
 
     families = {
@@ -505,6 +598,8 @@ def main() -> None:
         timestamps, minute_data = aggregate_to_minutes(files)
         if sensor_name == "Fast":
             minute_data = add_fast_derived_products(minute_data)
+        if sensor_name == "Ozone":
+            minute_data = limit_ozone_ppbv(minute_data)
         if sensor_name == "CNR4" and minute_data.shape[1] > 12:
             valid_albedo = (minute_data[:, 12] > 0.0) & (minute_data[:, 12] <= 1.0)
             minute_data[~valid_albedo, 12] = np.nan
@@ -518,7 +613,17 @@ def main() -> None:
                 rolling_data[~valid_albedo, 12] = np.nan
             plot_cnr4_rolling_means(timestamps, rolling_data, args.output_directory)
         elif sensor_name == "Ozone":
-            plot_ozone_rolling_means(timestamps, rolling_data, args.output_directory)
+            print(f"Loading Hawthorne hourly ozone from {args.hawthorne_file}...", flush=True)
+            deq_timestamps, deq_ozone_ppbv = load_hawthorne_ozone(
+                args.hawthorne_file, timestamps[0], timestamps[-1]
+            )
+            plot_ozone_rolling_means(
+                timestamps,
+                rolling_data,
+                args.output_directory,
+                deq_timestamps,
+                deq_ozone_ppbv,
+            )
         print(f"Wrote {sensor_name} plots from {len(timestamps)} one-minute records.", flush=True)
 
 
