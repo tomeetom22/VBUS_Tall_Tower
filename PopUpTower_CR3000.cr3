@@ -93,19 +93,14 @@ Units Ozone_ppbv = ppbv
 Units BattVolt = V
 Units LoggerTemp = deg C
 
-' Each sensor has an independent table and card file.
-DataTable (CSAT3B_20Hz, True, -1)
+' Both sonic anemometers share one 20 Hz table and card file.
+DataTable (CSAT_20Hz, True, -1)
   DataInterval (0, 0, mSec, 10)
-  TableFile ("CRD:PopUp_CSAT3B_20Hz", 64, -1, 0, 24, Hr, CSAT3BFileWritten, LastCSAT3BFile)
+  TableFile ("CRD:PopUp_CSAT_20Hz", 64, -1, 0, 24, Hr, CSAT3BFileWritten, LastCSAT3BFile)
   Sample (4, CSAT3BData(1), IEEE4)
+  Sample (4, CSAT3Data(1), IEEE4)
   Sample (1, BattVolt, IEEE4)
   Sample (1, LoggerTemp, IEEE4)
-EndTable
-
-DataTable (CSAT3_20Hz, True, -1)
-  DataInterval (0, 0, mSec, 10)
-  TableFile ("CRD:PopUp_CSAT3_20Hz", 64, -1, 0, 24, Hr, CSAT3FileWritten, LastCSAT3File)
-  Sample (4, CSAT3Data(1), IEEE4)
 EndTable
 
 DataTable (GPS_1Hz, True, -1)
@@ -136,8 +131,7 @@ BeginProg
     ' Command 98 retrieves wind and sonic temperature after SDMTrigger.
     CSAT3 (CSAT3Data(), 1, CSAT3_SDM_Address, 98, 20)
 
-    CallTable CSAT3B_20Hz
-    CallTable CSAT3_20Hz
+    CallTable CSAT_20Hz
   NextScan
 
   SlowSequence
