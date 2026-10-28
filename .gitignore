@@ -1,5 +1,9 @@
 *.dat
 *.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
 
 /plots/
 /__pycache__/

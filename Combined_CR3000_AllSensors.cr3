@@ -45,7 +45,7 @@ Const LW_Up_Mult = 1000 / LW_Up_Sensitivity
 Const LW_Down_Mult = 1000 / LW_Down_Sensitivity
 
 ' Set these three offsets from the individual ozone calibrations.
-Const Ozone1_mV_Offset = 0
+Const Ozone1_mV_Offset = 112.3
 Const Ozone2_mV_Offset = 0
 
 ' One calendar-day file per table. TableFile closes the active file and opens

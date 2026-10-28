@@ -6,6 +6,11 @@ streams them one row at a time, retaining only one-minute means. It then
 plots trailing 30-minute means rather than raw samples.
 
 Input data are read only. PNG files are written to plots.
+
+Example:
+    python plot_test_data.py --start 2026-10-16T19:30
+
+``--start`` is UTC, matching the converted CR3000 timestamps and plot axes.
 """
 
 from __future__ import annotations
@@ -32,6 +37,11 @@ ROLLING_WINDOW = timedelta(minutes=30)
 MAX_CO2_PPM = 5000.0
 MIN_OZONE_PPBV = 0.0
 MAX_OZONE_PPBV = 500.0
+OZONE_PPBV_PER_MV = 0.1
+# October 16, 2026 zeroing means from Ozone_Calibration/plot_ozone_zeroing.py.
+# Ozone 1 is the 2 m/bottom sensor; Ozone 2 is the top sensor.
+OZONE1_MV_OFFSET = 112.30
+OZONE2_MV_OFFSET = 0 # Just used test value for now as it is broken
 SITE_LATITUDE_DEG = 40.7507
 SITE_LONGITUDE_DEG = -111.9014
 MOUNTAIN_TIME = ZoneInfo("America/Denver")
@@ -83,6 +93,19 @@ def iter_dat_rows(path: Path):
             yield timestamp, values
 
 
+def parse_utc_timestamp(value: str) -> datetime:
+    """Parse an ISO-8601 start time and normalize it to a naive UTC value."""
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "expected ISO-8601 UTC time, e.g. 2026-10-16T19:30 or 2026-10-16T19:30Z"
+        ) from exc
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+    return timestamp
+
+
 def expand_bin_width(
     totals: np.ndarray, counts: np.ndarray, width: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -95,12 +118,16 @@ def expand_bin_width(
     )
 
 
-def aggregate_to_minutes(files: list[Path]) -> tuple[list[datetime], np.ndarray]:
+def aggregate_to_minutes(
+    files: list[Path], start: datetime | None = None
+) -> tuple[list[datetime], np.ndarray]:
     """Stream files and return one-minute means, without retaining raw rows."""
     minute_bins: dict[datetime, tuple[np.ndarray, np.ndarray]] = {}
 
     for path in files:
         for timestamp, values in iter_dat_rows(path):
+            if start is not None and timestamp < start:
+                continue
             minute = timestamp.replace(second=0, microsecond=0)
             if minute not in minute_bins:
                 totals = np.zeros(len(values), dtype=float)
@@ -250,6 +277,20 @@ def limit_ozone_ppbv(data: np.ndarray) -> np.ndarray:
         bounded[:, 2:final_column], MIN_OZONE_PPBV, MAX_OZONE_PPBV
     )
     return bounded
+
+
+def add_ozone_calibration(data: np.ndarray) -> np.ndarray:
+    """Recalculate ozone ppbv from mV channels and October 16 zero offsets.
+
+    The converted files include logger-calculated ppbv columns, but plotting
+    deliberately ignores them so every ozone plot uses the same offsets.
+    """
+    if data.shape[1] < 4:
+        return data
+    calibrated = data.copy()
+    calibrated[:, 2] = (calibrated[:, 0] - OZONE1_MV_OFFSET) * OZONE_PPBV_PER_MV
+    calibrated[:, 3] = (calibrated[:, 1] - OZONE2_MV_OFFSET) * OZONE_PPBV_PER_MV
+    return calibrated
 
 
 def labels_for(sensor_name: str, column_count: int) -> list[str]:
@@ -568,6 +609,16 @@ def main() -> None:
         help="directory for PNG output (default: plots)",
     )
     parser.add_argument(
+        "--start",
+        type=parse_utc_timestamp,
+        help="include records at or after this ISO-8601 UTC timestamp",
+    )
+    parser.add_argument(
+        "--skip-fast",
+        action="store_true",
+        help="skip the high-volume 20 Hz Fast table",
+    )
+    parser.add_argument(
         "--hawthorne-file",
         type=Path,
         default=DEFAULT_HAWTHORNE_DATA_FILE,
@@ -587,6 +638,8 @@ def main() -> None:
         name: sorted(args.data_directory.glob(pattern))
         for name, pattern in families.items()
     }
+    if args.skip_fast:
+        files_by_family["Fast"] = []
     if not any(files_by_family.values()):
         parser.error(f"No expected .dat files found in {args.data_directory}")
 
@@ -595,10 +648,11 @@ def main() -> None:
         if not files:
             continue
         print(f"Processing {sensor_name} ({len(files)} files)...", flush=True)
-        timestamps, minute_data = aggregate_to_minutes(files)
+        timestamps, minute_data = aggregate_to_minutes(files, args.start)
         if sensor_name == "Fast":
             minute_data = add_fast_derived_products(minute_data)
         if sensor_name == "Ozone":
+            minute_data = add_ozone_calibration(minute_data)
             minute_data = limit_ozone_ppbv(minute_data)
         if sensor_name == "CNR4" and minute_data.shape[1] > 12:
             valid_albedo = (minute_data[:, 12] > 0.0) & (minute_data[:, 12] <= 1.0)
